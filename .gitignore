@@ -9,6 +9,7 @@ lerna-debug.log*
 .env.development
 .env.production
 .env.example
+.env
 
 node_modules
 dist
