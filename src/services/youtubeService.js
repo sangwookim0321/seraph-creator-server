@@ -142,55 +142,42 @@ class YoutubeService {
 
   async getRecentVideos(channelId) {
     try {
-      // 한 달 전 날짜 계산
+      // 한 달 전 기준 설정
       const oneMonthAgo = new Date();
       oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
       const publishedAfter = oneMonthAgo.toISOString();
 
-      // 일반 영상 조회
-      const normalVideos = await this.api.get('/search', {
+      // 한 달 동안의 영상만 조회
+      const videos = await this.api.get('/search', {
         params: {
           part: 'id',
-          channelId: channelId,
+          channelId,
           order: 'date',
           type: 'video',
-          videoDuration: 'medium',
-          publishedAfter,
+          publishedAfter,  // 한 달 전 이후의 영상만 조회
           maxResults: 50
         }
       });
 
-      // 쇼츠 조회
-      const shortsVideos = await this.api.get('/search', {
-        params: {
-          part: 'id',
-          channelId: channelId,
-          order: 'date',
-          type: 'video',
-          videoDuration: 'short',
-          publishedAfter,
-          maxResults: 50
-        }
-      });
+      // 영상 상세 정보 조회 (duration 포함)
+      const videoDetails = await this.getVideosDetails(
+        videos.data.items.map(item => item.id.videoId)
+      );
 
-      // 각각의 상세 정보 조회
-      const normalVideoDetails = await this.getVideosDetails(
-        normalVideos.data.items.map(item => item.id.videoId)
-      );
-      const shortsVideoDetails = await this.getVideosDetails(
-        shortsVideos.data.items.map(item => item.id.videoId)
-      );
+      // duration을 기준으로 쇼츠와 일반 영상 분류
+      const { normal, shorts } = this.categorizeVideos(videoDetails);
 
       return {
-        normal: normalVideoDetails,
-        shorts: shortsVideoDetails,
+        normal,
+        shorts,
         period: {
           start: publishedAfter,
           end: new Date().toISOString()
         }
       };
     } catch (error) {
-      throw new Error('동영상 목록을 가져오는데 실패했습니다: ' + error.message);
+      console.error('동영상 목록 조회 실패:', error);
+      throw new Error('동영상 목록을 가져오는데 실패했습니다');
     }
   }
 
@@ -198,14 +185,15 @@ class YoutubeService {
     try {
       const response = await this.api.get('/videos', {
         params: {
-          part: 'statistics',
+          part: 'statistics,contentDetails',
           id: videoIds.join(',')
         }
       });
 
       return response.data.items;
     } catch (error) {
-      throw new Error('동영상 상세 정보를 가져오는데 실패했습니다: ' + error.message);
+      console.error('동영상 상세 정보 조회 실패:', error);
+      throw new Error('동영상 상세 정보를 가져오는데 실패했습니다');
     }
   }
 
@@ -297,6 +285,35 @@ class YoutubeService {
       console.error('수익 계산 실패:', error);
       throw error;
     }
+  }
+
+  categorizeVideos(videos) {
+    const normal = [];
+    const shorts = [];
+
+    videos.forEach(video => {
+      // ISO 8601 duration 파싱
+      const duration = video.contentDetails.duration;
+      const minutes = this.parseDuration(duration);
+      
+      if (minutes <= 1) {
+        shorts.push(video);
+      } else {
+        normal.push(video);
+      }
+    });
+
+    return { normal, shorts };
+  }
+
+  parseDuration(duration) {
+    const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
+    
+    const hours = (match[1] ? parseInt(match[1]) : 0);
+    const minutes = (match[2] ? parseInt(match[2]) : 0);
+    const seconds = (match[3] ? parseInt(match[3]) : 0);
+    
+    return hours * 60 + minutes + seconds / 60;
   }
 
 }
